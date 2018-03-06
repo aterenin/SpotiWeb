@@ -19,30 +19,8 @@ let checkForImageDownload = false;
 let notificationTimeout = 2000;
 if(process.platform === 'linux') notificationTimeout = 1000;
 
-let flashPath = path.join(path.resolve(__dirname, '../'), '/app.asar.unpacked/plugins/');
-
-process.argv.forEach(function (arg, index, array) {
-  if (arg === 'dev') {
-    flashPath = path.join(__dirname, '/plugins/');
-  }
-});
-
-switch (process.platform) {
-  case 'win32':
-  case 'win64':
-    app.commandLine.appendSwitch('ppapi-flash-path', path.join(flashPath, 'PepperFlashPlayer-win32.dll') );
-    app.commandLine.appendSwitch('ppapi-flash-version', '21.0.0.216');
-    break;
-  case 'linux':
-    app.commandLine.appendSwitch('ppapi-flash-path', path.join(flashPath, 'PepperFlashPlayer-linux.so') );
-    app.commandLine.appendSwitch('ppapi-flash-version', '21.0.0.216');
-    break;
-  case 'darwin':
-  default:
-    app.commandLine.appendSwitch('ppapi-flash-path', path.join(flashPath, 'PepperFlashPlayer-mac.plugin') );
-    app.commandLine.appendSwitch('ppapi-flash-version', '21.0.0.216');
-}
-
+const widevine = require('electron-widevinecdm');
+widevine.load(app);
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
@@ -71,8 +49,8 @@ ipcMain.on('show', function() {
     mainWindow.show();
 });
 
-global.currentSong = {title: "title", author: "author"};
 global.loadingGif = null;
+global.sharedObj = {reloadPlay: false, playProgress: 0, title: "", author: ""};
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -107,24 +85,20 @@ app.on('ready', function() {
   // Open the DevTools.
   //mainWindow.webContents.openDevTools();
 
-
-  mainWindow.on('page-title-updated', function(){
-    let title = mainWindow.webContents.getTitle();
-    if(title.indexOf("▶") !== -1){
-      mainWindow.webContents.executeJavaScript("updateLyricsButton();");
-      checkForImageDownload = true;
-      setTimeout(function(){
-        let title = mainWindow.webContents.getTitle();
-        title = title.substring(2);
-        mainWindow.webContents.executeJavaScript("notify();");
-        //console.log(script);
-        checkForImageDownload = false;
-      }, notificationTimeout);
-    }else{
-      return;
+  // ensure quitting is handled correctly on Mac OS X
+  app.on('before-quit', function(event) {
+    if (process.platform === 'darwin') {
+      willQuit = true;
     }
   });
 
+  // Emitted when close button is pressed.
+  mainWindow.on('close', function(event) {
+    if (process.platform === 'darwin' && !willQuit) {
+      event.preventDefault();
+      app.hide();
+    }
+  });
 
   // Emitted when the window is closed.
   mainWindow.on('closed', function() {
@@ -163,7 +137,7 @@ app.on('ready', function() {
 
   var registeredNext = globalShortcut.register('MediaNextTrack', function () {
     console.log('medianexttrack pressed');
-    simulateClick("next");
+    simulateClick("Next");
   });
   if (!registeredNext) {
     console.log('medianexttrack registration failed');
@@ -177,7 +151,8 @@ app.on('ready', function() {
 
   var registeredPlay = globalShortcut.register('MediaPlayPause', function () {
     console.log('mediaplaypause pressed');
-    simulateClick("play-pause");
+    simulateClick("Play");
+    simulateClick("Pause");
   });
   if (!registeredPlay) {
     console.log('mediaplaypause registration failed');
@@ -191,7 +166,7 @@ app.on('ready', function() {
 
   var registeredPrevious = globalShortcut.register('MediaPreviousTrack', function () {
     console.log('mediaprevioustrack pressed');
-    simulateClick("previous");
+    simulateClick("Previous");
   });
   if (!registeredPrevious) {
     console.log('mediaprevioustrack registration failed');
@@ -232,7 +207,7 @@ app.on('ready', function() {
       if(lyricsWindow != null){
         lyricsWindow.hide();
       }
-      let searchKey = global.currentSong.title + " " + global.currentSong.author;
+      let searchKey = global.sharedObj.title + " " + global.sharedObj.author;
       let lyricsURL = "https://www.musixmatch.com/search/" + escape(searchKey);
       lyricsWindow.loadURL(lyricsURL);
 
@@ -258,38 +233,33 @@ app.on('ready', function() {
     "https://simage2.pubmatic.com/AdServer/*",
     "https://pagead2.googlesyndication.com/*",
     "https://securepubads.g.doubleclick.net/*",
-    "https://googleads.g.doubleclick.net/*"]
+    "https://googleads.g.doubleclick.net/*",
+    "https://adeventtracker.spotify.com/*",
+    "https://shrt.spotify.com/t/t/*",
+    "https://*.cloudfront.net/mp3-ad/*",
+    "https://*/ads/*/ads/*",
+    //"https://stats.g.doubleclick.net/r/collect?*",
+    "https://www.google.com/ads/ga-audiences?*",
+    ]
   };
+
   var ses = mainWindow.webContents.session;
   ses.webRequest.onBeforeRequest(filter, function(details, callback) {
     //console.log(details.url);
-    callback({cancel: true});
-  });
 
-  var imageFilter = {
-    urls: ["http://o.scdn.co/300/*", "*/loading_throbber.gif"]
-  };
-
-  ses.webRequest.onCompleted(imageFilter, function(details) {
-    //console.log(details.url);
-    if((details.url).indexOf("loading_throbber.gif") != -1){
-      global.loadingGif = details.url;
-
-      mainWindow.webContents.executeJavaScript("appendLyricsButton();");
-    } else {
-      if (checkForImageDownload) {
-        mainWindow.webContents.executeJavaScript("setCurrentImage('" + details.url + "')");
-        checkForImageDownload = false;
+    if((details.url).indexOf("shrt.spotify.com/t/t") > 0){
+      console.log(details.url);
+      //mainWindow.webContents.executeJavaScript("new Notification('Ad Incoming!');");
+      mainWindow.webContents.executeJavaScript("getPlayStatus();");
+      console.log("PlayProgress: " + global.sharedObj.playProgress);
+      if(global.sharedObj.playProgress < 10 || global.sharedObj.playProgress > 90){
+        console.log("Will reload");
+        mainWindow.reload();
+        global.sharedObj.reloadPlay = true;
       }
     }
+    callback({cancel: true});
   });
-
-  // Set the default user agent to Internet Explorer 10 to avoid being redirected to open.spotify.com (for now)
-  ses.webRequest.onBeforeSendHeaders((details, callback) => {
-    details.requestHeaders['User-Agent'] = 'Mozilla/5.0 (MSIE 10.0; Windows NT 6.1; Trident/5.0)';
-    callback({ cancel: false, requestHeaders: details.requestHeaders });
-  });
-
 
 });
 
