@@ -227,40 +227,6 @@ app.on('ready', function() {
       });
   });
 
-
-  var filter = {
-    urls: ["https://pubads.g.doubleclick.net/*", "https://video-ad-stats.googlesyndication.com/*",
-    "https://simage2.pubmatic.com/AdServer/*",
-    "https://pagead2.googlesyndication.com/*",
-    "https://securepubads.g.doubleclick.net/*",
-    "https://googleads.g.doubleclick.net/*",
-    "https://adeventtracker.spotify.com/*",
-    "https://shrt.spotify.com/t/t/*",
-    "https://*.cloudfront.net/mp3-ad/*",
-    "https://*/ads/*/ads/*",
-    //"https://stats.g.doubleclick.net/r/collect?*",
-    "https://www.google.com/ads/ga-audiences?*",
-    ]
-  };
-
-  var ses = mainWindow.webContents.session;
-  ses.webRequest.onBeforeRequest(filter, function(details, callback) {
-    //console.log(details.url);
-
-    if((details.url).indexOf("shrt.spotify.com/t/t") > 0){
-      console.log(details.url);
-      //mainWindow.webContents.executeJavaScript("new Notification('Ad Incoming!');");
-      mainWindow.webContents.executeJavaScript("getPlayStatus();");
-      console.log("PlayProgress: " + global.sharedObj.playProgress);
-      if(global.sharedObj.playProgress < 10 || global.sharedObj.playProgress > 90){
-        console.log("Will reload");
-        mainWindow.reload();
-        global.sharedObj.reloadPlay = true;
-      }
-    }
-    callback({cancel: true});
-  });
-
 });
 
 //helper function to simulate button clicks on mainWindow
